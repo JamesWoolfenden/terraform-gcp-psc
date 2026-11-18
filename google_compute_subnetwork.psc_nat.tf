@@ -7,6 +7,6 @@ resource "google_compute_subnetwork" "psc_nat" {
   region        = var.region
   description   = "Private Service Connect NAT subnet for ${var.name}"
   network       = var.network
-  ip_cidr_range = var.producer_nat_cidr
+  ip_cidr_range = var.producer.nat_cidr
   purpose       = "PRIVATE_SERVICE_CONNECT"
 }

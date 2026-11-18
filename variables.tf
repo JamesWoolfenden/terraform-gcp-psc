@@ -29,216 +29,119 @@ variable "network" {
   }
 }
 
-variable "enable_consumer" {
-  type        = bool
-  description = "Create a consumer PSC endpoint (internal address + forwarding rule) to var.consumer_service_attachment"
-  default     = false
-
-  validation {
-    condition     = var.enable_consumer != null
-    error_message = "var.enable_consumer must be true or false"
-  }
-}
-
-variable "consumer_subnetwork" {
-  type        = string
-  description = "Subnetwork the consumer endpoint's internal address is allocated from (required when var.enable_consumer is true)"
+variable "consumer" {
+  type = object({
+    subnetwork          = string
+    service_attachment  = string
+    ip_address          = optional(string)
+    allow_global_access = optional(bool, false)
+  })
+  description = "Consumer PSC endpoint (internal address + forwarding rule) to a producer's service attachment; null (the default) creates none. subnetwork: where the endpoint address is allocated; service_attachment: projects/P/regions/R/serviceAttachments/NAME or its self link; ip_address: optional static IP (GCP allocates one when null); allow_global_access: let clients in other regions reach the endpoint (off by default)"
   default     = null
 
   validation {
-    condition     = var.consumer_subnetwork == null || length(trimspace(coalesce(var.consumer_subnetwork, " "))) > 0
-    error_message = "var.consumer_subnetwork must not be an empty string when set"
+    condition     = var.consumer == null ? true : length(trimspace(var.consumer.subnetwork)) > 0
+    error_message = "var.consumer.subnetwork must be a non-empty string"
   }
 
   validation {
-    condition     = !var.enable_consumer || var.consumer_subnetwork != null
-    error_message = "var.consumer_subnetwork is required when var.enable_consumer is true"
+    condition     = var.consumer == null ? true : can(regex("projects/[^/]+/regions/[^/]+/serviceAttachments/[^/]+$", var.consumer.service_attachment))
+    error_message = "var.consumer.service_attachment must reference a service attachment (projects/P/regions/R/serviceAttachments/NAME)"
+  }
+
+  validation {
+    condition     = var.consumer == null ? true : (var.consumer.ip_address == null ? true : can(cidrhost("${var.consumer.ip_address}/32", 0)))
+    error_message = "var.consumer.ip_address must be a valid IPv4 address when set"
+  }
+
+  validation {
+    condition     = var.consumer == null ? true : var.consumer.allow_global_access != null
+    error_message = "var.consumer.allow_global_access must be true or false"
   }
 }
 
-variable "consumer_ip_address" {
-  type        = string
-  description = "Optional static internal IP for the consumer endpoint; GCP allocates one from var.consumer_subnetwork when null"
+variable "google_apis" {
+  type = object({
+    ip_address    = string
+    bundle        = optional(string, "vpc-sc")
+    endpoint_name = optional(string, "pscgoogleapis")
+  })
+  description = "Global PSC endpoint for a Google APIs bundle; null (the default) creates none. ip_address: internal IP that must not fall inside any subnet of var.network; bundle: vpc-sc (VPC Service Controls supported APIs only, the default) or all-apis; endpoint_name: 1-20 lowercase letters and digits, starting with a letter"
   default     = null
 
   validation {
-    condition     = var.consumer_ip_address == null || can(cidrhost("${coalesce(var.consumer_ip_address, "0.0.0.0")}/32", 0))
-    error_message = "var.consumer_ip_address must be a valid IPv4 address when set"
+    condition     = var.google_apis == null ? true : can(cidrhost("${var.google_apis.ip_address}/32", 0))
+    error_message = "var.google_apis.ip_address must be a valid IPv4 address"
+  }
+
+  validation {
+    condition     = var.google_apis == null ? true : contains(["vpc-sc", "all-apis"], coalesce(var.google_apis.bundle, "unset"))
+    error_message = "var.google_apis.bundle must be one of vpc-sc or all-apis"
+  }
+
+  validation {
+    condition     = var.google_apis == null ? true : can(regex("^[a-z][a-z0-9]{0,19}$", var.google_apis.endpoint_name))
+    error_message = "var.google_apis.endpoint_name must be 1-20 lowercase letters or digits and start with a letter"
   }
 }
 
-variable "consumer_service_attachment" {
-  type        = string
-  description = "Service attachment the consumer endpoint connects to, as projects/P/regions/R/serviceAttachments/NAME or its self link (required when var.enable_consumer is true)"
+variable "producer" {
+  type = object({
+    target_service = string
+    nat_cidr       = string
+    consumer_accept_list = list(object({
+      project_id_or_num = optional(string)
+      network_url       = optional(string)
+      connection_limit  = number
+    }))
+    consumer_reject_list  = optional(list(string), [])
+    enable_proxy_protocol = optional(bool, false)
+    domain_names          = optional(list(string))
+  })
+  description = "Publish an internal load balancer through a service attachment with a dedicated PSC NAT subnet; null (the default) creates none. target_service: the load balancer's forwarding rule; nat_cidr: CIDR for the PSC NAT subnet; consumer_accept_list: consumers allowed to connect (ACCEPT_MANUAL), each naming one project or network and a connection limit; consumer_reject_list: projects/networks always rejected; enable_proxy_protocol: prepend the PROXY protocol header; domain_names: optional single DNS domain (ending in a dot) consumers get an automatic private zone for"
   default     = null
 
   validation {
-    condition     = var.consumer_service_attachment == null || can(regex("projects/[^/]+/regions/[^/]+/serviceAttachments/[^/]+$", coalesce(var.consumer_service_attachment, " ")))
-    error_message = "var.consumer_service_attachment must reference a service attachment (projects/P/regions/R/serviceAttachments/NAME)"
+    condition     = var.producer == null ? true : length(trimspace(var.producer.target_service)) > 0
+    error_message = "var.producer.target_service must be a non-empty string"
   }
 
   validation {
-    condition     = !var.enable_consumer || var.consumer_service_attachment != null
-    error_message = "var.consumer_service_attachment is required when var.enable_consumer is true"
-  }
-}
-
-variable "consumer_allow_global_access" {
-  type        = bool
-  description = "Allow clients in other regions to reach the consumer endpoint; off by default to keep access regional"
-  default     = false
-
-  validation {
-    condition     = var.consumer_allow_global_access != null
-    error_message = "var.consumer_allow_global_access must be true or false"
-  }
-}
-
-variable "enable_google_apis" {
-  type        = bool
-  description = "Create a global PSC endpoint for the Google APIs bundle in var.google_apis_bundle"
-  default     = false
-
-  validation {
-    condition     = var.enable_google_apis != null
-    error_message = "var.enable_google_apis must be true or false"
-  }
-}
-
-variable "google_apis_bundle" {
-  type        = string
-  description = "Google APIs bundle the endpoint targets: vpc-sc (VPC Service Controls supported APIs only) or all-apis"
-  default     = "vpc-sc"
-
-  validation {
-    condition     = contains(["vpc-sc", "all-apis"], var.google_apis_bundle)
-    error_message = "var.google_apis_bundle must be one of vpc-sc or all-apis"
-  }
-}
-
-variable "google_apis_endpoint_name" {
-  type        = string
-  description = "Name of the Google APIs PSC endpoint; GCP requires 1-20 lowercase letters and digits, starting with a letter"
-  default     = "pscgoogleapis"
-
-  validation {
-    condition     = can(regex("^[a-z][a-z0-9]{0,19}$", var.google_apis_endpoint_name))
-    error_message = "var.google_apis_endpoint_name must be 1-20 lowercase letters or digits and start with a letter"
-  }
-}
-
-variable "google_apis_ip_address" {
-  type        = string
-  description = "Internal IP for the Google APIs endpoint; must not fall inside any subnet of var.network (required when var.enable_google_apis is true)"
-  default     = null
-
-  validation {
-    condition     = var.google_apis_ip_address == null || can(cidrhost("${coalesce(var.google_apis_ip_address, "0.0.0.0")}/32", 0))
-    error_message = "var.google_apis_ip_address must be a valid IPv4 address when set"
+    condition     = var.producer == null ? true : can(cidrhost(var.producer.nat_cidr, 0))
+    error_message = "var.producer.nat_cidr must be a valid CIDR range"
   }
 
   validation {
-    condition     = !var.enable_google_apis || var.google_apis_ip_address != null
-    error_message = "var.google_apis_ip_address is required when var.enable_google_apis is true"
-  }
-}
-
-variable "enable_producer" {
-  type        = bool
-  description = "Publish var.producer_target_service through a service attachment with a dedicated PSC NAT subnet"
-  default     = false
-
-  validation {
-    condition     = var.enable_producer != null
-    error_message = "var.enable_producer must be true or false"
-  }
-}
-
-variable "producer_target_service" {
-  type        = string
-  description = "Forwarding rule of the internal load balancer to publish (required when var.enable_producer is true)"
-  default     = null
-
-  validation {
-    condition     = var.producer_target_service == null || length(trimspace(coalesce(var.producer_target_service, " "))) > 0
-    error_message = "var.producer_target_service must not be an empty string when set"
+    condition     = var.producer == null ? true : length(var.producer.consumer_accept_list) > 0
+    error_message = "var.producer.consumer_accept_list must list at least one consumer"
   }
 
   validation {
-    condition     = !var.enable_producer || var.producer_target_service != null
-    error_message = "var.producer_target_service is required when var.enable_producer is true"
-  }
-}
-
-variable "producer_nat_cidr" {
-  type        = string
-  description = "CIDR range for the PSC NAT subnet (required when var.enable_producer is true)"
-  default     = null
-
-  validation {
-    condition     = var.producer_nat_cidr == null || can(cidrhost(coalesce(var.producer_nat_cidr, "0.0.0.0/0"), 0))
-    error_message = "var.producer_nat_cidr must be a valid CIDR range when set"
-  }
-
-  validation {
-    condition     = !var.enable_producer || var.producer_nat_cidr != null
-    error_message = "var.producer_nat_cidr is required when var.enable_producer is true"
-  }
-}
-
-variable "producer_consumer_accept_list" {
-  type = list(object({
-    project_id_or_num = optional(string)
-    network_url       = optional(string)
-    connection_limit  = number
-  }))
-  description = "Consumers allowed to connect (ACCEPT_MANUAL): each entry names a project or a network and a connection limit"
-  default     = []
-
-  validation {
-    condition = alltrue([
-      for c in var.producer_consumer_accept_list :
+    condition = var.producer == null ? true : alltrue([
+      for c in var.producer.consumer_accept_list :
       (c.project_id_or_num == null) != (c.network_url == null) && c.connection_limit >= 1
     ])
-    error_message = "Each var.producer_consumer_accept_list entry must set exactly one of project_id_or_num or network_url, and a connection_limit of at least 1"
+    error_message = "Each var.producer.consumer_accept_list entry must set exactly one of project_id_or_num or network_url, and a connection_limit of at least 1"
   }
 
   validation {
-    condition     = !var.enable_producer || length(var.producer_consumer_accept_list) > 0
-    error_message = "var.producer_consumer_accept_list must list at least one consumer when var.enable_producer is true"
+    condition     = var.producer == null ? true : alltrue([for c in coalesce(var.producer.consumer_reject_list, []) : length(trimspace(c)) > 0])
+    error_message = "var.producer.consumer_reject_list must not contain empty strings"
   }
-}
-
-variable "producer_consumer_reject_list" {
-  type        = list(string)
-  description = "Consumer project IDs/numbers or network URLs that are always rejected"
-  default     = []
 
   validation {
-    condition     = alltrue([for c in var.producer_consumer_reject_list : length(trimspace(c)) > 0])
-    error_message = "var.producer_consumer_reject_list must not contain empty strings"
+    condition     = var.producer == null ? true : var.producer.enable_proxy_protocol != null
+    error_message = "var.producer.enable_proxy_protocol must be true or false"
   }
-}
-
-variable "producer_enable_proxy_protocol" {
-  type        = bool
-  description = "Prepend the PROXY protocol header so the producer can see the consumer's connection details"
-  default     = false
 
   validation {
-    condition     = var.producer_enable_proxy_protocol != null
-    error_message = "var.producer_enable_proxy_protocol must be true or false"
+    condition     = var.producer == null ? true : alltrue([for d in coalesce(var.producer.domain_names, []) : can(regex("\\.$", d))])
+    error_message = "var.producer.domain_names entries must be fully qualified and end with a dot"
   }
-}
-
-variable "producer_domain_names" {
-  type        = list(string)
-  description = "Optional DNS domain (ending in a dot) consumers get an automatic private zone for"
-  default     = null
 
   validation {
-    condition     = var.producer_domain_names == null || alltrue([for d in coalesce(var.producer_domain_names, []) : can(regex("\\.$", d))])
-    error_message = "var.producer_domain_names entries must be fully qualified and end with a dot"
+    condition     = var.producer == null ? true : length(coalesce(var.producer.domain_names, [])) <= 1
+    error_message = "var.producer.domain_names supports at most one domain (a GCP service attachment limit)"
   }
 }
 

@@ -3,10 +3,10 @@
 [![Build Status](https://github.com/JamesWoolfenden/terraform-gcp-psc/workflows/Verify/badge.svg?branch=main)](https://github.com/JamesWoolfenden/terraform-gcp-psc/actions)
 [![Latest Release](https://img.shields.io/github/release/JamesWoolfenden/terraform-gcp-psc.svg)](https://github.com/JamesWoolfenden/terraform-gcp-psc/releases/latest)
 [![GitHub tag (latest SemVer)](https://img.shields.io/github/tag/JamesWoolfenden/terraform-gcp-psc.svg?label=latest)](https://github.com/JamesWoolfenden/terraform-gcp-psc/releases/latest)
-![Terraform Version](https://img.shields.io/badge/tf-%3E%3D1.9.0-blue.svg)
+![Terraform Version](https://img.shields.io/badge/tf-%3E%3D1.5.0-blue.svg)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 
-Terraform module for Private Service Connect. Each part is toggled independently: a consumer endpoint (internal address plus forwarding rule) to a producer's service attachment, a global endpoint to the Google APIs bundle (`vpc-sc` by default, or `all-apis`), and a producer service attachment with a dedicated PSC NAT subnet that only accepts the consumers listed explicitly (`ACCEPT_MANUAL`).
+Terraform module for Private Service Connect. Each part is enabled independently by passing its object (`consumer`, `google_apis`, `producer`; null skips it): a consumer endpoint (internal address plus forwarding rule) to a producer's service attachment, a global endpoint to the Google APIs bundle (`vpc-sc` by default, or `all-apis`), and a producer service attachment with a dedicated PSC NAT subnet that only accepts the consumers listed explicitly (`ACCEPT_MANUAL`).
 
 ## Usage
 
@@ -19,20 +19,23 @@ module "psc" {
   region  = "europe-west2"
   network = google_compute_network.psc.id
 
-  enable_consumer             = true
-  consumer_subnetwork         = google_compute_subnetwork.workloads.id
-  consumer_service_attachment = "projects/producer-project-id/regions/europe-west2/serviceAttachments/example-service"
+  consumer = {
+    subnetwork         = google_compute_subnetwork.workloads.id
+    service_attachment = "projects/producer-project-id/regions/europe-west2/serviceAttachments/example-service"
+  }
 
-  enable_google_apis     = true
-  google_apis_bundle     = "vpc-sc"
-  google_apis_ip_address = "10.255.255.254"
+  google_apis = {
+    ip_address = "10.255.255.254"
+    bundle     = "vpc-sc"
+  }
 
-  enable_producer         = true
-  producer_target_service = google_compute_forwarding_rule.producer.id
-  producer_nat_cidr       = "10.94.0.0/24"
-  producer_consumer_accept_list = [
-    { project_id_or_num = "consumer-project-id", connection_limit = 10 },
-  ]
+  producer = {
+    target_service = google_compute_forwarding_rule.producer.id
+    nat_cidr       = "10.94.0.0/24"
+    consumer_accept_list = [
+      { project_id_or_num = "consumer-project-id", connection_limit = 10 },
+    ]
+  }
 }
 ```
 
@@ -68,25 +71,12 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_consumer_allow_global_access"></a> [consumer\_allow\_global\_access](#input\_consumer\_allow\_global\_access) | Allow clients in other regions to reach the consumer endpoint; off by default to keep access regional | `bool` | `false` | no |
-| <a name="input_consumer_ip_address"></a> [consumer\_ip\_address](#input\_consumer\_ip\_address) | Optional static internal IP for the consumer endpoint; GCP allocates one from var.consumer\_subnetwork when null | `string` | `null` | no |
-| <a name="input_consumer_service_attachment"></a> [consumer\_service\_attachment](#input\_consumer\_service\_attachment) | Service attachment the consumer endpoint connects to, as projects/P/regions/R/serviceAttachments/NAME or its self link (required when var.enable\_consumer is true) | `string` | `null` | no |
-| <a name="input_consumer_subnetwork"></a> [consumer\_subnetwork](#input\_consumer\_subnetwork) | Subnetwork the consumer endpoint's internal address is allocated from (required when var.enable\_consumer is true) | `string` | `null` | no |
-| <a name="input_enable_consumer"></a> [enable\_consumer](#input\_enable\_consumer) | Create a consumer PSC endpoint (internal address + forwarding rule) to var.consumer\_service\_attachment | `bool` | `false` | no |
-| <a name="input_enable_google_apis"></a> [enable\_google\_apis](#input\_enable\_google\_apis) | Create a global PSC endpoint for the Google APIs bundle in var.google\_apis\_bundle | `bool` | `false` | no |
-| <a name="input_enable_producer"></a> [enable\_producer](#input\_enable\_producer) | Publish var.producer\_target\_service through a service attachment with a dedicated PSC NAT subnet | `bool` | `false` | no |
-| <a name="input_google_apis_bundle"></a> [google\_apis\_bundle](#input\_google\_apis\_bundle) | Google APIs bundle the endpoint targets: vpc-sc (VPC Service Controls supported APIs only) or all-apis | `string` | `"vpc-sc"` | no |
-| <a name="input_google_apis_endpoint_name"></a> [google\_apis\_endpoint\_name](#input\_google\_apis\_endpoint\_name) | Name of the Google APIs PSC endpoint; GCP requires 1-20 lowercase letters and digits, starting with a letter | `string` | `"pscgoogleapis"` | no |
-| <a name="input_google_apis_ip_address"></a> [google\_apis\_ip\_address](#input\_google\_apis\_ip\_address) | Internal IP for the Google APIs endpoint; must not fall inside any subnet of var.network (required when var.enable\_google\_apis is true) | `string` | `null` | no |
+| <a name="input_consumer"></a> [consumer](#input\_consumer) | Consumer PSC endpoint (internal address + forwarding rule) to a producer's service attachment; null (the default) creates none. subnetwork: where the endpoint address is allocated; service\_attachment: projects/P/regions/R/serviceAttachments/NAME or its self link; ip\_address: optional static IP (GCP allocates one when null); allow\_global\_access: let clients in other regions reach the endpoint (off by default) | <pre>object({<br/>    subnetwork          = string<br/>    service_attachment  = string<br/>    ip_address          = optional(string)<br/>    allow_global_access = optional(bool, false)<br/>  })</pre> | `null` | no |
+| <a name="input_google_apis"></a> [google\_apis](#input\_google\_apis) | Global PSC endpoint for a Google APIs bundle; null (the default) creates none. ip\_address: internal IP that must not fall inside any subnet of var.network; bundle: vpc-sc (VPC Service Controls supported APIs only, the default) or all-apis; endpoint\_name: 1-20 lowercase letters and digits, starting with a letter | <pre>object({<br/>    ip_address    = string<br/>    bundle        = optional(string, "vpc-sc")<br/>    endpoint_name = optional(string, "pscgoogleapis")<br/>  })</pre> | `null` | no |
 | <a name="input_labels"></a> [labels](#input\_labels) | Labels to apply to the PSC addresses and forwarding rules | `map(string)` | `{}` | no |
 | <a name="input_name"></a> [name](#input\_name) | Base name for the PSC addresses, forwarding rules, NAT subnet and service attachment | `string` | n/a | yes |
 | <a name="input_network"></a> [network](#input\_network) | Self link or ID of the VPC network the endpoints and the NAT subnet live in | `string` | n/a | yes |
-| <a name="input_producer_consumer_accept_list"></a> [producer\_consumer\_accept\_list](#input\_producer\_consumer\_accept\_list) | Consumers allowed to connect (ACCEPT\_MANUAL): each entry names a project or a network and a connection limit | <pre>list(object({<br/>    project_id_or_num = optional(string)<br/>    network_url       = optional(string)<br/>    connection_limit  = number<br/>  }))</pre> | `[]` | no |
-| <a name="input_producer_consumer_reject_list"></a> [producer\_consumer\_reject\_list](#input\_producer\_consumer\_reject\_list) | Consumer project IDs/numbers or network URLs that are always rejected | `list(string)` | `[]` | no |
-| <a name="input_producer_domain_names"></a> [producer\_domain\_names](#input\_producer\_domain\_names) | Optional DNS domain (ending in a dot) consumers get an automatic private zone for | `list(string)` | `null` | no |
-| <a name="input_producer_enable_proxy_protocol"></a> [producer\_enable\_proxy\_protocol](#input\_producer\_enable\_proxy\_protocol) | Prepend the PROXY protocol header so the producer can see the consumer's connection details | `bool` | `false` | no |
-| <a name="input_producer_nat_cidr"></a> [producer\_nat\_cidr](#input\_producer\_nat\_cidr) | CIDR range for the PSC NAT subnet (required when var.enable\_producer is true) | `string` | `null` | no |
-| <a name="input_producer_target_service"></a> [producer\_target\_service](#input\_producer\_target\_service) | Forwarding rule of the internal load balancer to publish (required when var.enable\_producer is true) | `string` | `null` | no |
+| <a name="input_producer"></a> [producer](#input\_producer) | Publish an internal load balancer through a service attachment with a dedicated PSC NAT subnet; null (the default) creates none. target\_service: the load balancer's forwarding rule; nat\_cidr: CIDR for the PSC NAT subnet; consumer\_accept\_list: consumers allowed to connect (ACCEPT\_MANUAL), each naming one project or network and a connection limit; consumer\_reject\_list: projects/networks always rejected; enable\_proxy\_protocol: prepend the PROXY protocol header; domain\_names: optional single DNS domain (ending in a dot) consumers get an automatic private zone for | <pre>object({<br/>    target_service = string<br/>    nat_cidr       = string<br/>    consumer_accept_list = list(object({<br/>      project_id_or_num = optional(string)<br/>      network_url       = optional(string)<br/>      connection_limit  = number<br/>    }))<br/>    consumer_reject_list  = optional(list(string), [])<br/>    enable_proxy_protocol = optional(bool, false)<br/>    domain_names          = optional(list(string))<br/>  })</pre> | `null` | no |
 | <a name="input_region"></a> [region](#input\_region) | Region for the consumer endpoint and the producer service attachment | `string` | `"europe-west2"` | no |
 
 ## Outputs

@@ -8,8 +8,8 @@ resource "google_compute_forwarding_rule" "consumer" {
   description             = "Private Service Connect endpoint for ${var.name}"
   network                 = var.network
   ip_address              = google_compute_address.consumer[0].id
-  target                  = var.consumer_service_attachment
+  target                  = var.consumer.service_attachment
   load_balancing_scheme   = ""
-  allow_psc_global_access = var.consumer_allow_global_access
+  allow_psc_global_access = var.consumer.allow_global_access
   labels                  = var.labels
 }
