@@ -30,7 +30,7 @@
       "first_seen": "2026-11-18",
       "fixable": false,
       "id": "HOLDEN_AI_002",
-      "last_seen": "2026-11-18",
+      "last_seen": "2026-11-19",
       "line": 2,
       "principle": "reliability",
       "related_resources": [
@@ -45,10 +45,40 @@
       "suppression_reason": null,
       "title": "prevent_destroy on count-toggled PSC addresses makes the consumer and Google APIs parts impossible to disable or rename",
       "unresolved_since": "2026-11-18"
+    },
+    {
+      "confidence": "medium",
+      "explanation": "The provider expands google_compute_subnetwork.ip_cidr_range in place only when the new range contains the old one; any other change to var.producer.nat_cidr forces replacement. Terraform's default destroy-then-create deletes the NAT subnet before updating google_compute_service_attachment.producer.nat_subnets, and GCP refuses to delete a PSC NAT subnet a service attachment still uses (resourceInUseByAnotherResource), so the apply fails half-way. Adding create_before_destroy alone would not help: the subnet name \"${var.name}-psc-nat\" is static and the new subnet would collide with it. Principle is a best fit: this is an apply-time correctness bug.",
+      "file": "google_compute_subnetwork.psc_nat.tf",
+      "first_seen": "2026-11-19",
+      "fixable": false,
+      "id": "HOLDEN_AI_003",
+      "last_seen": "2026-11-19",
+      "line": 3,
+      "principle": "reliability",
+      "related_resources": [
+        "google_compute_service_attachment.producer",
+        "variable.producer"
+      ],
+      "remediation": "Either make the NAT subnet name unique per range (for example suffix it with a short hash of nat_cidr) and add lifecycle { create_before_destroy = true }, so the new subnet is attached before the old one is removed, or document in var.producer that nat_cidr can only be widened in place and any other change needs the producer part removed and recreated.",
+      "resource": "google_compute_subnetwork.psc_nat",
+      "severity": "LOW",
+      "status": "open",
+      "suppression_reason": null,
+      "title": "Changing producer.nat_cidr to a non-superset range fails apply: the NAT subnet is destroyed while the service attachment still uses it",
+      "unresolved_since": "2026-11-19"
     }
   ],
-  "scan_date": "2026-11-18T00:00:00Z",
+  "scan_date": "2026-11-19T00:00:00Z",
   "scan_path": ".",
-  "suggested_policies": [],
+  "suggested_policies": [
+    {
+      "first_seen": "2026-11-19",
+      "last_seen": "2026-11-19",
+      "rationale": "holden has no policy for google_compute_service_attachment. With connection_preference = ACCEPT_AUTOMATIC any project that knows the attachment URI can create a PSC endpoint into the producer's internal load balancer; ACCEPT_MANUAL restricts connections to consumer_accept_lists. The check is one attribute with a fixed value and applies to any Terraform using the resource. This module already hard-codes ACCEPT_MANUAL, so it passes.",
+      "status": "proposed-upstream",
+      "yaml": "id: LOCAL_GCP_001\nname: Private Service Connect service attachments must require manual consumer acceptance\nprinciple: network-security\nseverity: MEDIUM\nrationale: |\n  A service attachment with connection_preference ACCEPT_AUTOMATIC accepts a\n  PSC endpoint from any project that knows its URI, exposing the published\n  internal load balancer to arbitrary consumers. ACCEPT_MANUAL limits\n  connections to the projects and networks in consumer_accept_lists.\nmessage: |\n  google_compute_service_attachment does not set connection_preference to ACCEPT_MANUAL.\nremediation: |\n  Set connection_preference = \"ACCEPT_MANUAL\" and list the allowed consumers:\n    consumer_accept_lists {\n      project_id_or_num = \"consumer-project\"\n      connection_limit  = 10\n    }\nresources:\n  google_compute_service_attachment:\n    path: connection_preference\n    equals: ACCEPT_MANUAL\n"
+    }
+  ],
   "suggested_suppressions": []
 }

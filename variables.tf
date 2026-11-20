@@ -98,7 +98,7 @@ variable "producer" {
     enable_proxy_protocol = optional(bool, false)
     domain_names          = optional(list(string))
   })
-  description = "Publish an internal load balancer through a service attachment with a dedicated PSC NAT subnet; null (the default) creates none. target_service: the load balancer's forwarding rule; nat_cidr: CIDR for the PSC NAT subnet; consumer_accept_list: consumers allowed to connect (ACCEPT_MANUAL), each naming one project or network and a connection limit; consumer_reject_list: projects/networks always rejected; enable_proxy_protocol: prepend the PROXY protocol header; domain_names: optional single DNS domain (ending in a dot) consumers get an automatic private zone for"
+  description = "Publish an internal load balancer through a service attachment with a dedicated PSC NAT subnet; null (the default) creates none. target_service: the load balancer's forwarding rule; nat_cidr: CIDR for the PSC NAT subnet (can only be widened in place to a range containing the current one; any other change replaces the subnet, which GCP refuses while the service attachment uses it, so remove and recreate the producer part instead); consumer_accept_list: consumers allowed to connect (ACCEPT_MANUAL), each naming one project or network and a connection limit; consumer_reject_list: projects/networks always rejected; enable_proxy_protocol: prepend the PROXY protocol header; domain_names: optional single DNS domain (ending in a dot) consumers get an automatic private zone for"
   default     = null
 
   validation {

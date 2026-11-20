@@ -1,0 +1,21 @@
+id: LOCAL_GCP_001
+name: Private Service Connect service attachments must require manual consumer acceptance
+principle: network-security
+severity: MEDIUM
+rationale: |
+  A service attachment with connection_preference ACCEPT_AUTOMATIC accepts a
+  PSC endpoint from any project that knows its URI, exposing the published
+  internal load balancer to arbitrary consumers. ACCEPT_MANUAL limits
+  connections to the projects and networks in consumer_accept_lists.
+message: |
+  google_compute_service_attachment does not set connection_preference to ACCEPT_MANUAL.
+remediation: |
+  Set connection_preference = "ACCEPT_MANUAL" and list the allowed consumers:
+    consumer_accept_lists {
+      project_id_or_num = "consumer-project"
+      connection_limit  = 10
+    }
+resources:
+  google_compute_service_attachment:
+    path: connection_preference
+    equals: ACCEPT_MANUAL
